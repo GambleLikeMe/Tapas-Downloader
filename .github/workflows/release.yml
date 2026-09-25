@@ -1,0 +1,76 @@
+name: Release
+on:
+  push:
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+      - run: go test ./...
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: node --check internal/app/web/app.js
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows-x64
+          - os: ubuntu-latest
+            label: Linux-x64
+          - os: macos-latest
+            label: macOS-arm64
+          - os: macos-15-intel
+            label: macOS-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      APP_VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test on native runner
+        run: go test ./...
+      - name: Build, smoke test, and package
+        run: go run ./tools/package.go
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TapasDownloader-${{ matrix.label }}
+          path: dist/release/*
+          if-no-files-found: error
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: TapasDownloader-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create release and attach builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test -n "$(find release-assets -type f -print -quit)"
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --generate-notes
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
