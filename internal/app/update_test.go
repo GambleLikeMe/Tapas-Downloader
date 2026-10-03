@@ -62,7 +62,10 @@ func TestUpdateCheckCachesAndHandlesFailures(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			calls := 0
-			checker := newUpdateChecker(test.version, "example/project")
+			checker, err := newUpdateChecker(test.version, "example/project", "")
+			if err != nil {
+				t.Fatal(err)
+			}
 			checker.client = &http.Client{Transport: updateRoundTrip(func(r *http.Request) (*http.Response, error) {
 				calls++
 				if r.URL.Path != "/repos/example/project/releases/latest" {
@@ -75,6 +78,9 @@ func TestUpdateCheckCachesAndHandlesFailures(t *testing.T) {
 			if (result != nil) != test.want || (err != nil) != test.wantErr {
 				t.Fatalf("result = %#v, error = %v", result, err)
 			}
+			if result != nil && result.URL != "https://github.com/example/project/releases/latest" {
+				t.Fatalf("unexpected update link %q", result.URL)
+			}
 			checker.check(request)
 			if calls != 1 {
 				t.Fatalf("expected one API request after cached check, got %d", calls)
@@ -85,7 +91,10 @@ func TestUpdateCheckCachesAndHandlesFailures(t *testing.T) {
 
 func TestUpdateCheckRetriesAfterFailure(t *testing.T) {
 	now := time.Now()
-	checker := newUpdateChecker("v1.0.0", "example/project")
+	checker, err := newUpdateChecker("v1.0.0", "example/project", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	checker.now = func() time.Time { return now }
 	calls := 0
 	checker.client = &http.Client{Transport: updateRoundTrip(func(*http.Request) (*http.Response, error) {
@@ -98,5 +107,40 @@ func TestUpdateCheckRetriesAfterFailure(t *testing.T) {
 	checker.check(request)
 	if calls != 2 {
 		t.Fatalf("expected retry after backoff, got %d calls", calls)
+	}
+}
+
+func TestManualUpdateURL(t *testing.T) {
+	for _, raw := range []string{
+		"https://github.com/example/project",
+		"https://github.com/example/project/releases/latest",
+	} {
+		checker, err := newUpdateChecker("v1.0.0", "other/repo", raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if checker.repository != "example/project" || checker.releaseURL != "https://github.com/example/project/releases/latest" {
+			t.Fatalf("wrong update target for %s: %#v", raw, checker)
+		}
+		checker.client = &http.Client{Transport: updateRoundTrip(func(r *http.Request) (*http.Response, error) {
+			if r.URL.String() != "https://api.github.com/repos/example/project/releases/latest" {
+				t.Errorf("wrong API target: %s", r.URL)
+			}
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"tag_name":"v1.1.0","html_url":"https://github.com/example/project/releases/tag/v1.1.0"}`))}, nil
+		})}
+		result, err := checker.check(httptest.NewRequest(http.MethodGet, "/api/update", nil))
+		if err != nil || result == nil || result.URL != checker.releaseURL {
+			t.Fatalf("update = %#v, error = %v", result, err)
+		}
+	}
+	for _, raw := range []string{
+		"http://github.com/example/project",
+		"https://github.com.evil.test/example/project",
+		"https://github.com/example/project/releases/tag/v1.1.0",
+		"https://github.com/example/project?token=secret",
+	} {
+		if _, err := newUpdateChecker("v1.0.0", "", raw); err == nil {
+			t.Errorf("accepted invalid update URL %q", raw)
+		}
 	}
 }

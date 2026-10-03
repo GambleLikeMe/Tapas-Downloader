@@ -15,6 +15,8 @@ import (
 
 var repositoryName = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
+var updateURL = "https://github.com/GambleLikeMe/Tapas-Downloader/releases/latest"
+
 type updateInfo struct {
 	Version string `json:"version"`
 	URL     string `json:"url"`
@@ -24,16 +26,30 @@ type updateChecker struct {
 	mu         sync.Mutex
 	version    string
 	repository string
+	releaseURL string
 	client     *http.Client
 	now        func() time.Time
 	nextCheck  time.Time
 	latest     *updateInfo
 }
 
-func newUpdateChecker(version, repository string) *updateChecker {
+func newUpdateChecker(version, repository, updateURL string) (*updateChecker, error) {
+	if updateURL != "" {
+		var err error
+		repository, updateURL, err = parseUpdateURL(updateURL)
+		if err != nil {
+			return nil, err
+		}
+	} else if repository != "" {
+		if !repositoryName.MatchString(repository) {
+			return nil, errors.New("invalid GitHub repository")
+		}
+		updateURL = "https://github.com/" + repository + "/releases/latest"
+	}
 	return &updateChecker{
 		version:    version,
 		repository: repository,
+		releaseURL: updateURL,
 		client: &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 3 || req.URL.Scheme != "https" || req.URL.Host != "api.github.com" {
 				return errors.New("GitHub redirected to an unsupported host")
@@ -41,7 +57,23 @@ func newUpdateChecker(version, repository string) *updateChecker {
 			return nil
 		}},
 		now: time.Now,
+	}, nil
+}
+
+func parseUpdateURL(raw string) (string, string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host != "github.com" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" {
+		return "", "", errors.New("update URL must be a GitHub repository or its latest release page")
 	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) != 2 && (len(parts) != 4 || parts[2] != "releases" || parts[3] != "latest") {
+		return "", "", errors.New("update URL must be a GitHub repository or its latest release page")
+	}
+	repository := parts[0] + "/" + parts[1]
+	if !repositoryName.MatchString(repository) || parts[0] == "." || parts[0] == ".." || parts[1] == "." || parts[1] == ".." {
+		return "", "", errors.New("invalid GitHub repository in update URL")
+	}
+	return repository, "https://github.com/" + repository + "/releases/latest", nil
 }
 
 func (a *app) getUpdate(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +131,7 @@ func (u *updateChecker) check(r *http.Request) (*updateInfo, error) {
 	}
 	u.latest = nil
 	if compareVersions(current, available) < 0 {
-		u.latest = &updateInfo{Version: release.TagName, URL: release.HTMLURL}
+		u.latest = &updateInfo{Version: release.TagName, URL: u.releaseURL}
 	}
 	u.nextCheck = u.now().Add(6 * time.Hour)
 	return u.latest, nil

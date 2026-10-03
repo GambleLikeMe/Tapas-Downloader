@@ -47,13 +47,15 @@ func packageApp() error {
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
-	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags", "-X main.version="+version, "-o", binary, ".")
-	if repository := os.Getenv("APP_REPOSITORY"); repository != "" {
-		if !regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`).MatchString(repository) {
-			return fmt.Errorf("invalid APP_REPOSITORY %q", repository)
-		}
-		build.Args[4] = "-X main.version=" + version + " -X main.repository=" + repository
+	repository := os.Getenv("APP_REPOSITORY")
+	if repository != "" && !regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`).MatchString(repository) {
+		return fmt.Errorf("invalid APP_REPOSITORY %q", repository)
 	}
+	ldflags := "-X main.version=" + version
+	if repository != "" {
+		ldflags += " -X main.repository=" + repository
+	}
+	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags", ldflags, "-o", binary, ".")
 	build.Stdout, build.Stderr = os.Stdout, os.Stderr
 	if err := build.Run(); err != nil {
 		return err

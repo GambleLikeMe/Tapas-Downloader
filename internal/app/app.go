@@ -86,7 +86,10 @@ func Run(version, repository string) {
 	if configured := os.Getenv("TAPAS_GITHUB_REPO"); configured != "" {
 		repository = configured
 	}
-	a.updates = newUpdateChecker(version, repository)
+	a.updates, err = newUpdateChecker(version, repository, updateURL)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if err := a.loadActivity(); err != nil {
 		log.Fatal(err)
 	}
