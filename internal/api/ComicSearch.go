@@ -23,14 +23,26 @@ type ComicSummary struct {
 }
 
 func SearchComics(c *client.HTTPClient, query string, header http.Header) ([]ComicSummary, error) {
-	endpoint := "https://api.tapas.io/v3/search/comics?q=" + url.QueryEscape(query) + "&page=1"
+	return searchSeries(c, "comics", "COMICS", query, header)
+}
+
+func SearchBooks(c *client.HTTPClient, query string, header http.Header) ([]ComicSummary, error) {
+	return searchSeries(c, "books", "BOOKS", query, header)
+}
+
+func searchSeries(c *client.HTTPClient, path, kind, query string, header http.Header) ([]ComicSummary, error) {
+	endpoint := "https://api.tapas.io/v3/search/" + path + "?q=" + url.QueryEscape(query) + "&page=1"
 	resp, err := c.Get(endpoint, header)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("comic search: %s", resp.Status)
+		label := "comic"
+		if path == "books" {
+			label = "novel"
+		}
+		return nil, fmt.Errorf("%s search: %s", label, resp.Status)
 	}
 	var result struct {
 		Result []struct {
@@ -42,7 +54,7 @@ func SearchComics(c *client.HTTPClient, query string, header http.Header) ([]Com
 	}
 	comics := make([]ComicSummary, 0, len(result.Result))
 	for _, item := range result.Result {
-		if item.Series.ID > 0 && item.Series.Type == "COMICS" {
+		if item.Series.ID > 0 && item.Series.Type == kind {
 			comics = append(comics, item.Series)
 		}
 	}

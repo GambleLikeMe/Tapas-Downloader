@@ -22,10 +22,22 @@ type Episode struct {
 }
 
 func GetComicList(c *client.HTTPClient, id int64, header http.Header) ([]Episode, error) {
+	return getEpisodeList(c, id, header, false)
+}
+
+func GetNovelList(c *client.HTTPClient, id int64, header http.Header) ([]Episode, error) {
+	return getEpisodeList(c, id, header, true)
+}
+
+func getEpisodeList(c *client.HTTPClient, id int64, header http.Header, novel bool) ([]Episode, error) {
 	episodes := make([]Episode, 0)
 	complete := false
 	for page := 1; page <= 500; page++ {
-		url := "https://api.tapas.io/v3/series/" + strconv.FormatInt(id, 10) + "/episodes-pagination?page=" + strconv.Itoa(page) + "&sort=OLDEST&max_limit=20"
+		query := "page=" + strconv.Itoa(page) + "&sort=OLDEST&max_limit=20"
+		if novel {
+			query = "page=" + strconv.Itoa(page) + "&max_limit=20&desc=false"
+		}
+		url := "https://api.tapas.io/v3/series/" + strconv.FormatInt(id, 10) + "/episodes-pagination?" + query
 		resp, err := c.Get(url, header)
 		if err != nil {
 			return nil, err

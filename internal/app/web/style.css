@@ -278,9 +278,20 @@ select:focus-visible,
 }
 
 .search-icon {
-    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
     color: #748a79;
-    line-height: 1
+}
+
+.search-icon svg,
+.chapter-search svg {
+    display: block;
+    width: 18px;
+    height: 18px
 }
 
 .search-line input {
@@ -296,6 +307,14 @@ select:focus-visible,
 
 .search-line input::placeholder {
     color: #a1aba3
+}
+
+.search-line select {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    height: 32px;
+    padding: 0 8px
 }
 
 .search-line .button {
@@ -524,6 +543,24 @@ select:focus-visible,
     font-size: 12px
 }
 
+.series-details {
+    color: var(--secondary);
+    font-size: 12px;
+    margin-top: 7px
+}
+
+.update-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    background: var(--pale);
+    color: var(--accent-dark)
+}
+
 .series-summary .description {
     color: #7d8a80;
     max-width: 730px;
@@ -560,7 +597,10 @@ select:focus-visible,
 }
 
 .chapter-search span {
-    font-size: 19px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
     color: #8ea495
 }
 
@@ -619,6 +659,8 @@ select:focus-visible,
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
     color: #758579;
     margin: 17px 0 7px;
     font-size: 11px
@@ -626,6 +668,7 @@ select:focus-visible,
 
 .selection-tools>div {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px
 }
 

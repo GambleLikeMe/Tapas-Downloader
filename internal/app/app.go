@@ -45,9 +45,10 @@ type app struct {
 	activityPath string
 	activity     activityState
 	debug        debugState
+	updates      *updateChecker
 }
 
-func Run(version string) {
+func Run(version, repository string) {
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
 		fmt.Println(version)
 		return
@@ -82,6 +83,10 @@ func Run(version string) {
 		log.Fatal(err)
 	}
 	a := &app{root: root, statePath: "queue.json", configPath: "settings.json", activityPath: "history.json", cache: cache, config: settings{DownloadDir: root, DefaultFormat: "pdf", FilenameTemplate: defaultFilenameTemplate}}
+	if configured := os.Getenv("TAPAS_GITHUB_REPO"); configured != "" {
+		repository = configured
+	}
+	a.updates = newUpdateChecker(version, repository)
 	if err := a.loadActivity(); err != nil {
 		log.Fatal(err)
 	}
@@ -110,12 +115,14 @@ func Run(version string) {
 	mux.HandleFunc("POST /api/session", sessionHandler(sessionToken))
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /api/state", a.state)
+	mux.HandleFunc("GET /api/update", a.getUpdate)
 	mux.HandleFunc("POST /api/accounts", a.addAccount)
 	mux.HandleFunc("POST /api/accounts/delete", a.deleteAccount)
 	mux.HandleFunc("POST /api/saved", a.addSaved)
 	mux.HandleFunc("POST /api/saved/delete", a.deleteSaved)
 	mux.HandleFunc("GET /api/search", a.search)
 	mux.HandleFunc("GET /api/series", a.series)
+	mux.HandleFunc("GET /api/novel/chapter", a.novelChapter)
 	mux.HandleFunc("GET /api/cache", a.cacheInfo)
 	mux.HandleFunc("POST /api/cache/clear", a.clearCache)
 	mux.HandleFunc("POST /api/history/{kind}/clear", a.clearActivity)

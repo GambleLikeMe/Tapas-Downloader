@@ -58,7 +58,7 @@ func BuildHeader(userID, token string) (http.Header, error) {
 	head.Set("X-Device-Type", "ANDROID")
 	head.Set("X-Device-Uuid", hex.EncodeToString([]byte("kahuwolp")))
 	head.Set("X-Lang-Code", "en")
-	head.Set("User-Agent", "okhttp 31812; OS Version 16; phone; App Version ZERO")
+	head.Set("User-Agent", "okhttp 31812; OS Version 16; phone; App Version 23")
 	head.Set("X-User-Id", userID)
 	head.Set("X-Auth-Token", token)
 	return head, nil

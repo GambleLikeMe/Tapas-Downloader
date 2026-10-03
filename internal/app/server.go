@@ -171,17 +171,26 @@ func (a *app) search(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err)
 			return
 		}
-		if details.Type != "COMICS" {
-			fail(w, 400, errors.New("this downloader currently supports comics"))
+		if details.Type != "COMICS" && details.Type != "BOOKS" {
+			fail(w, 400, errors.New("this series type is unsupported"))
 			return
 		}
 		if err := a.recordSearch(r.URL.Query().Get("q")); err != nil {
 			log.Printf("save recent search: %v", err)
 		}
-		send(w, []api.ComicSummary{{ID: details.ID, Title: details.Title, Description: details.Description, Type: details.Type, ThumbURL: details.Thumb.FileURL, Creators: details.Creators}})
+		cover := details.Thumb.FileURL
+		if cover == "" {
+			cover = details.BookCoverURL
+		}
+		send(w, []api.ComicSummary{{ID: details.ID, Title: details.Title, Description: details.Description, Type: details.Type, ThumbURL: cover, Creators: details.Creators}})
 		return
 	}
-	results, err := api.SearchComics(c, query, header)
+	var results []api.ComicSummary
+	if r.URL.Query().Get("kind") == "books" {
+		results, err = api.SearchBooks(c, query, header)
+	} else {
+		results, err = api.SearchComics(c, query, header)
+	}
 	if err != nil {
 		fail(w, 400, err)
 		return
@@ -233,11 +242,15 @@ func (a *app) series(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err)
 			return
 		}
-		if cached.Details.Type != "COMICS" {
-			fail(w, 400, errors.New("this downloader currently supports comics"))
+		if cached.Details.Type != "COMICS" && cached.Details.Type != "BOOKS" {
+			fail(w, 400, errors.New("this series type is unsupported"))
 			return
 		}
-		cached.Episodes, err = api.GetComicList(c, id, header)
+		if cached.Details.Type == "BOOKS" {
+			cached.Episodes, err = api.GetNovelList(c, id, header)
+		} else {
+			cached.Episodes, err = api.GetComicList(c, id, header)
+		}
 		if err != nil {
 			fail(w, 400, err)
 			return
@@ -254,11 +267,17 @@ func (a *app) series(w http.ResponseWriter, r *http.Request) {
 	downloadedIDs := map[int64]bool{}
 	for _, item := range tasks {
 		if item.SeriesID == id && item.State == "completed" {
-			downloadedIDs[item.EpisodeID] = true
+			if item.EpisodeID != 0 {
+				downloadedIDs[item.EpisodeID] = true
+			}
+			for _, chapter := range item.Chapters {
+				downloadedIDs[chapter.ID] = true
+			}
 		}
 	}
 	for _, root := range a.libraryRoots() {
-		entries, _ := os.ReadDir(filepath.Join(root, download.Slugify(details.Title)))
+		seriesDir := filepath.Join(root, download.Slugify(details.Title))
+		entries, _ := os.ReadDir(seriesDir)
 		for _, entry := range entries {
 			name := entry.Name()
 			if !entry.IsDir() {
@@ -277,6 +296,9 @@ func (a *app) series(w http.ResponseWriter, r *http.Request) {
 				downloadedIDs[episodeID] = true
 			}
 		}
+		for id := range savedBundleIDs(seriesDir) {
+			downloadedIDs[id] = true
+		}
 	}
 	for _, episode := range episodes {
 		access := "locked"
@@ -294,7 +316,7 @@ func (a *app) series(w http.ResponseWriter, r *http.Request) {
 			log.Printf("save recently opened series: %v", err)
 		}
 	}
-	send(w, map[string]any{"id": details.ID, "title": details.Title, "description": details.Description, "type": details.Type, "thumbUrl": details.Thumb.FileURL, "creators": details.Creators, "episodes": views})
+	send(w, map[string]any{"id": details.ID, "title": details.Title, "description": details.Description, "type": details.Type, "thumbUrl": details.Thumb.FileURL, "coverUrl": details.BookCoverURL, "creators": details.Creators, "genre": details.Genre.Name, "tags": details.Tags, "completed": details.Completed, "episodes": views})
 }
 
 func safePath(root, relative string) (string, error) {

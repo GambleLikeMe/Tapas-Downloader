@@ -20,6 +20,7 @@ type ComicDetails struct {
 	} `json:"thumb"`
 	BookCoverURL string `json:"book_cover_url"`
 	HumanURL     string `json:"human_url"`
+	Completed    bool   `json:"completed"`
 	Genre        struct {
 		Name string `json:"name"`
 	} `json:"genre"`

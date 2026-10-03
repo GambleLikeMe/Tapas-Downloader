@@ -22,33 +22,34 @@
    </div>
   </header>
   <main class="workspace">
+   <div id="update-banner" class="update-banner hidden" role="status"><span id="update-text"></span><a id="update-link" class="button subtle" target="_blank" rel="noopener noreferrer">View update →</a></div>
    <section id="search" class="view active">
     <div id="search-home">
-     <div class="screen-heading"><div><span class="overline">DISCOVER</span><h1>Find chapters to download</h1><p>Search comics by title, Tapas URL, or series ID.</p></div><span class="shortcut-hint">⌘ / Ctrl + K</span></div>
-     <form id="search-form" class="search-line"><span class="search-icon" aria-hidden="true">⌕</span><input id="query" type="search" aria-label="Search comics" placeholder="Search Tapas comics" autocomplete="off" required><button class="button primary" type="submit">Search</button></form>
+     <div class="screen-heading"><div><span class="overline">DISCOVER</span><h1>Find Tapas chapters</h1><p>Search comics or novels by title, Tapas URL, or series ID.</p></div><span class="shortcut-hint">⌘ / Ctrl + K</span></div>
+     <form id="search-form" class="search-line"><span class="search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.2 4.2"/></svg></span><input id="query" type="search" aria-label="Search series" placeholder="Title, Tapas URL, or series ID" autocomplete="off" required><select id="search-kind" aria-label="Content type"><option value="comics">Comics</option><option value="books">Novels</option></select><button class="button primary" type="submit">Search</button></form>
      <div class="minor-bar"><span>RECENT SEARCHES</span><button class="button link clear-activity" data-kind="searches" type="button">Clear history</button></div>
      <div id="recent-searches" class="saved-list"></div>
      <div class="minor-bar saved-bar"><span>SAVED SEARCHES</span><button id="save-query" class="button link" type="button">Save search</button></div>
      <div id="saved-list" class="saved-list"></div>
-     <div id="search-results" class="results-area"><div class="empty-state"><span class="empty-icon">⌕</span><strong>Search for a comic to get started</strong><span>Choose a result to inspect its chapters.</span></div></div>
+     <div id="search-results" class="results-area"><div class="empty-state"><span class="empty-icon">⌕</span><strong>Find a series to get started</strong><span>Choose a result to inspect its chapters.</span></div></div>
      <div id="recent-series-section" class="recent-series-section hidden"><div class="minor-bar"><span>RECENTLY OPENED</span><button class="button link clear-activity" data-kind="opened" type="button">Clear history</button></div><div id="recent-series-list" class="recent-series-list"></div></div>
     </div>
     <div id="series-panel" class="hidden">
      <div class="series-topline"><button id="back-to-results" class="button link" type="button">← Back to results</button><div class="series-top-actions"><span id="series-context">SERIES</span><button id="refresh-chapters" class="button subtle" type="button">Refresh chapters</button></div></div>
      <div id="series-summary"></div>
      <div class="chapter-tools">
-      <div class="chapter-search"><span aria-hidden="true">⌕</span><input id="chapter-query" type="search" aria-label="Search chapters" placeholder="Find a chapter by title or number"></div>
+      <div class="chapter-search"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.2 4.2"/></svg></span><input id="chapter-query" type="search" aria-label="Search chapters" placeholder="Find a chapter by title or number"></div>
       <label class="check-control" title="Shows chapters marked free or unlocked by Tapas"><input id="owned-only" type="checkbox" checked> Owned only <span class="help-mark" aria-hidden="true">?</span></label>
       <select id="chapter-filter" aria-label="Filter chapters"><option value="all">All states</option><option value="available">Available</option><option value="locked">Locked</option><option value="downloaded">Downloaded</option></select>
       <button id="sort-chapters" class="button subtle" type="button" aria-label="Sort chapters descending">Newest first ↓</button>
      </div>
-     <div class="selection-tools"><span id="visible-count">0 chapters</span><div><button id="select-visible" class="button link" type="button">Select visible</button><button id="clear-selection" class="button link" type="button">Clear selection</button></div></div>
+     <div class="selection-tools"><span id="visible-count">0 chapters</span><div><button id="select-all-available" class="button link hidden" type="button">Select all available</button><button id="select-visible" class="button link" type="button">Select visible</button><button id="clear-selection" class="button link" type="button">Clear selection</button></div></div>
      <div id="chapter-list" class="chapter-list" tabindex="0" aria-label="Chapters"></div>
      <div class="selection-footer"><span id="selection-count">0 chapters selected</span><button id="configure-download" class="button primary" type="button" disabled>Download selected</button></div>
     </div>
    </section>
    <section id="downloads" class="view">
-    <div class="screen-heading"><div><span class="overline">QUEUE</span><h1>Downloads</h1><p>Chapters run one at a time. Progress reflects saved images.</p></div><button class="button subtle" data-view="search" type="button">+ Add chapters</button></div>
+    <div class="screen-heading"><div><span class="overline">QUEUE</span><h1>Downloads</h1><p>Chapters run one at a time. Progress reflects saved chapter content.</p></div><button class="button subtle" data-view="search" type="button">+ Add chapters</button></div>
     <div class="download-destination"><div><span>DOWNLOAD FOLDER</span><strong id="download-folder">Loading…</strong><small>Changing this folder updates the default for future downloads.</small></div><button id="download-folder-browse" class="button subtle" type="button">Change folder</button></div>
     <div class="section-label"><span>ACTIVE & WAITING</span><span id="active-count">0</span></div>
     <div id="active-tasks" class="task-list"></div>
@@ -56,7 +57,7 @@
     <div id="recent-tasks" class="task-list"></div>
    </section>
    <section id="history" class="view">
-    <div class="screen-heading"><div><span class="overline">ON THIS MACHINE</span><h1>Completed downloads</h1><p>Open files, find their folders, or convert saved images.</p></div><button id="refresh-history" class="button subtle" type="button">Refresh</button></div>
+    <div class="screen-heading"><div><span class="overline">ON THIS MACHINE</span><h1>Completed downloads</h1><p>Open files, find their folders, or convert saved chapters.</p></div><button id="refresh-history" class="button subtle" type="button">Refresh</button></div>
     <div id="history-tasks" class="task-list"></div>
     <div class="section-label second"><span>FILES ON DISK</span><span>Including downloads from the previous app</span></div>
     <div id="disk-history"></div>
@@ -78,7 +79,8 @@
   <form id="download-config" class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
    <div class="dialog-header"><div><span class="overline">NEW DOWNLOAD</span><h2 id="dialog-title">Download chapters</h2></div><button id="close-dialog" class="icon-button" type="button" aria-label="Close dialog">×</button></div>
    <p id="dialog-summary" class="dialog-summary"></p>
-   <fieldset class="format-options"><legend>Output format</legend><label><input type="radio" name="format" value="pdf"><span><strong>PDF</strong><small>One file per chapter</small></span></label><label><input type="radio" name="format" value="epub"><span><strong>EPUB</strong><small>One file per chapter</small></span></label><label><input type="radio" name="format" value="raw"><span><strong>Images</strong><small>Original image folders</small></span></label></fieldset>
+   <fieldset class="format-options"><legend>Output format</legend><label><input type="radio" name="format" value="pdf"><span><strong>PDF</strong><small id="pdf-format-help">One file per chapter</small></span></label><label><input type="radio" name="format" value="epub"><span><strong>EPUB</strong><small id="epub-format-help">One file per chapter</small></span></label><label><input type="radio" name="format" value="raw"><span><strong id="raw-format-label">Images</strong><small id="raw-format-help">Original image folders</small></span></label></fieldset>
+   <fieldset id="novel-file-mode" class="format-options hidden"><legend>Novel file layout</legend><label><input type="radio" name="mode" value="combined" checked><span><strong>One file</strong><small>All selected chapters, in order</small></span></label><label><input type="radio" name="mode" value="separate"><span><strong>Separate files</strong><small>One file per chapter</small></span></label></fieldset>
    <div class="folder-setting dialog-folder"><label for="dialog-directory">Save to</label><div class="folder-field"><input id="dialog-directory" name="directory" type="text" required spellcheck="false"><button id="dialog-folder-browse" class="button subtle" type="button">Browse</button></div><small>Browse also saves the default folder for future downloads.</small></div>
    <div class="dialog-actions"><button id="cancel-dialog" class="button subtle" type="button">Cancel</button><button id="start-download" class="button primary" type="submit">Start download</button></div>
   </form>

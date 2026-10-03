@@ -14,36 +14,61 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type task struct {
-	ID               string    `json:"id"`
-	Account          string    `json:"account"`
-	SeriesID         int64     `json:"seriesId"`
-	EpisodeID        int64     `json:"episodeId"`
-	Scene            int64     `json:"scene"`
-	SeriesTitle      string    `json:"seriesTitle"`
-	EpisodeTitle     string    `json:"episodeTitle"`
-	Creator          string    `json:"creator"`
-	Description      string    `json:"description,omitempty"`
-	CoverURL         string    `json:"coverUrl,omitempty"`
-	FallbackCoverURL string    `json:"fallbackCoverUrl,omitempty"`
-	Source           string    `json:"source,omitempty"`
-	Keywords         []string  `json:"keywords,omitempty"`
-	Format           string    `json:"format"`
-	FilenameTemplate string    `json:"filenameTemplate"`
-	Directory        string    `json:"directory"`
-	Free             bool      `json:"free"`
-	Unlocked         bool      `json:"unlocked"`
-	State            string    `json:"state"`
-	Message          string    `json:"message"`
-	ImagesDone       int       `json:"imagesDone"`
-	ImagesTotal      int       `json:"imagesTotal"`
-	Result           string    `json:"result"`
-	AddedAt          time.Time `json:"addedAt"`
+	ID               string        `json:"id"`
+	Account          string        `json:"account"`
+	SeriesID         int64         `json:"seriesId"`
+	SeriesType       string        `json:"seriesType,omitempty"`
+	EpisodeID        int64         `json:"episodeId"`
+	Chapters         []taskChapter `json:"chapters,omitempty"`
+	Scene            int64         `json:"scene"`
+	SeriesTitle      string        `json:"seriesTitle"`
+	EpisodeTitle     string        `json:"episodeTitle"`
+	Creator          string        `json:"creator"`
+	Description      string        `json:"description,omitempty"`
+	CoverURL         string        `json:"coverUrl,omitempty"`
+	FallbackCoverURL string        `json:"fallbackCoverUrl,omitempty"`
+	Source           string        `json:"source,omitempty"`
+	Keywords         []string      `json:"keywords,omitempty"`
+	Format           string        `json:"format"`
+	FilenameTemplate string        `json:"filenameTemplate"`
+	Directory        string        `json:"directory"`
+	Free             bool          `json:"free"`
+	Unlocked         bool          `json:"unlocked"`
+	State            string        `json:"state"`
+	Message          string        `json:"message"`
+	ImagesDone       int           `json:"imagesDone"`
+	ImagesTotal      int           `json:"imagesTotal"`
+	ChaptersDone     int           `json:"chaptersDone,omitempty"`
+	ChaptersTotal    int           `json:"chaptersTotal,omitempty"`
+	Result           string        `json:"result"`
+	AddedAt          time.Time     `json:"addedAt"`
+}
+
+type taskChapter struct {
+	ID       int64  `json:"id"`
+	Scene    int64  `json:"scene"`
+	Title    string `json:"title"`
+	Free     bool   `json:"free"`
+	Unlocked bool   `json:"unlocked"`
+}
+
+func taskIncludesChapter(item task, id int64) bool {
+	if item.EpisodeID == id {
+		return true
+	}
+	for _, chapter := range item.Chapters {
+		if chapter.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func saveJSONAtomic(path string, value any) error {
@@ -75,7 +100,13 @@ func (a *app) loadTasks() error {
 	}
 	changed := false
 	for i := range a.tasks {
-		if a.tasks[i].State == "queued" && !a.tasks[i].Free && !a.tasks[i].Unlocked {
+		locked := !a.tasks[i].Free && !a.tasks[i].Unlocked
+		for _, chapter := range a.tasks[i].Chapters {
+			if !chapter.Free && !chapter.Unlocked {
+				locked = true
+			}
+		}
+		if a.tasks[i].State == "queued" && locked {
 			a.tasks[i].State = "failed"
 			a.tasks[i].Message = "Chapter is locked or unavailable"
 			changed = true
@@ -112,13 +143,14 @@ func (a *app) enqueue(w http.ResponseWriter, r *http.Request) {
 		EpisodeIDs []int64 `json:"episodeIds"`
 		Format     string  `json:"format"`
 		Directory  string  `json:"directory"`
+		Combine    bool    `json:"combine"`
 	}
 	if err := decode(r, &input); err != nil {
 		fail(w, 400, err)
 		return
 	}
-	if input.SeriesID <= 0 || len(input.EpisodeIDs) == 0 || len(input.EpisodeIDs) > 500 || !validFormat(input.Format) {
-		fail(w, 400, errors.New("select 1–500 chapters and an output format"))
+	if input.SeriesID <= 0 || len(input.EpisodeIDs) == 0 || len(input.EpisodeIDs) > 10000 || !validFormat(input.Format) || (!input.Combine && len(input.EpisodeIDs) > 500) {
+		fail(w, 400, errors.New("select chapters and an output format (up to 500 separate files or 10,000 combined chapters)"))
 		return
 	}
 	a.mu.Lock()
@@ -145,11 +177,20 @@ func (a *app) enqueue(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	if details.Type != "COMICS" {
-		fail(w, 400, errors.New("this downloader currently supports comics"))
+	if details.Type != "COMICS" && details.Type != "BOOKS" {
+		fail(w, 400, errors.New("this series type is unsupported"))
 		return
 	}
-	episodes, err := api.GetComicList(c, input.SeriesID, header)
+	if input.Combine && (details.Type != "BOOKS" || input.Format == "raw") {
+		fail(w, 400, errors.New("combine is available for novel PDF and EPUB downloads"))
+		return
+	}
+	var episodes []api.Episode
+	if details.Type == "BOOKS" {
+		episodes, err = api.GetNovelList(c, input.SeriesID, header)
+	} else {
+		episodes, err = api.GetComicList(c, input.SeriesID, header)
+	}
 	if err != nil {
 		fail(w, 400, err)
 		return
@@ -160,6 +201,7 @@ func (a *app) enqueue(w http.ResponseWriter, r *http.Request) {
 	}
 	seriesBook := bookFromDetails(details)
 	selected := make([]task, 0, len(input.EpisodeIDs))
+	bundleChapters := make([]taskChapter, 0, len(input.EpisodeIDs))
 	seen := map[int64]bool{}
 	for _, id := range input.EpisodeIDs {
 		ep, exists := byID[id]
@@ -172,19 +214,42 @@ func (a *app) enqueue(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, fmt.Errorf("chapter %d is locked or unavailable", ep.Scene))
 			return
 		}
+		if input.Combine {
+			bundleChapters = append(bundleChapters, taskChapter{ID: ep.ID, Scene: ep.Scene, Title: ep.Title, Free: ep.Free, Unlocked: ep.Unlocked})
+			continue
+		}
 		taskID, err := newTaskID()
 		if err != nil {
 			fail(w, 500, err)
 			return
 		}
-		selected = append(selected, task{ID: taskID, Account: input.Account, SeriesID: details.ID, EpisodeID: ep.ID, Scene: ep.Scene, SeriesTitle: details.Title, EpisodeTitle: ep.Title, Creator: seriesBook.Creator, Description: seriesBook.Description, CoverURL: seriesBook.CoverURL, FallbackCoverURL: seriesBook.FallbackCoverURL, Source: seriesBook.Source, Keywords: seriesBook.Keywords, Format: input.Format, FilenameTemplate: filenameTemplate, Directory: directory, Free: ep.Free, Unlocked: ep.Unlocked, State: "queued", Message: "Waiting", AddedAt: time.Now()})
+		selected = append(selected, task{ID: taskID, Account: input.Account, SeriesID: details.ID, SeriesType: details.Type, EpisodeID: ep.ID, Scene: ep.Scene, SeriesTitle: details.Title, EpisodeTitle: ep.Title, Creator: seriesBook.Creator, Description: seriesBook.Description, CoverURL: seriesBook.CoverURL, FallbackCoverURL: seriesBook.FallbackCoverURL, Source: seriesBook.Source, Keywords: seriesBook.Keywords, Format: input.Format, FilenameTemplate: filenameTemplate, Directory: directory, Free: ep.Free, Unlocked: ep.Unlocked, State: "queued", Message: "Waiting", AddedAt: time.Now()})
+	}
+	if input.Combine {
+		sort.SliceStable(bundleChapters, func(i, j int) bool { return bundleChapters[i].Scene < bundleChapters[j].Scene })
+		taskID, err := newTaskID()
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		selected = append(selected, task{ID: taskID, Account: input.Account, SeriesID: details.ID, SeriesType: "BOOKS", Chapters: bundleChapters, SeriesTitle: details.Title, EpisodeTitle: fmt.Sprintf("%d chapters", len(bundleChapters)), Creator: seriesBook.Creator, Description: seriesBook.Description, CoverURL: seriesBook.CoverURL, FallbackCoverURL: seriesBook.FallbackCoverURL, Source: seriesBook.Source, Keywords: seriesBook.Keywords, Format: input.Format, Directory: directory, Free: true, State: "queued", Message: "Waiting", ChaptersTotal: len(bundleChapters), AddedAt: time.Now()})
 	}
 	a.mu.Lock()
 	for _, candidate := range selected {
 		for _, existing := range a.tasks {
-			if candidate.Account == existing.Account && candidate.SeriesID == existing.SeriesID && candidate.EpisodeID == existing.EpisodeID && candidate.Format == existing.Format && candidate.Directory == existing.Directory && (existing.State == "queued" || existing.State == "preparing" || existing.State == "downloading" || existing.State == "converting" || existing.State == "canceling") {
+			if candidate.Account == existing.Account && candidate.SeriesID == existing.SeriesID && candidate.Format == existing.Format && candidate.Directory == existing.Directory && (existing.State == "queued" || existing.State == "preparing" || existing.State == "downloading" || existing.State == "converting" || existing.State == "canceling") {
+				conflict := taskIncludesChapter(existing, candidate.EpisodeID) && candidate.EpisodeID != 0
+				for _, chapter := range candidate.Chapters {
+					if taskIncludesChapter(existing, chapter.ID) {
+						conflict = true
+						break
+					}
+				}
+				if !conflict {
+					continue
+				}
 				a.mu.Unlock()
-				fail(w, 409, fmt.Errorf("chapter %d is already queued", candidate.Scene))
+				fail(w, 409, errors.New("one or more chapters are already queued"))
 				return
 			}
 		}
@@ -337,6 +402,23 @@ func (a *app) runTask(ctx context.Context, item task) (string, error) {
 	if !item.Free && !item.Unlocked {
 		return "", errors.New("chapter is locked or unavailable")
 	}
+	if len(item.Chapters) > 0 {
+		if item.SeriesType != "BOOKS" || item.Format == "raw" {
+			return "", errors.New("invalid combined novel task")
+		}
+		for _, chapter := range item.Chapters {
+			if !chapter.Free && !chapter.Unlocked {
+				return "", errors.New("chapter is locked or unavailable")
+			}
+		}
+		return a.runNovelBundleTask(ctx, item)
+	}
+	if item.SeriesType == "BOOKS" {
+		return a.runNovelTask(ctx, item)
+	}
+	if item.SeriesType != "" && item.SeriesType != "COMICS" {
+		return "", errors.New("unsupported series type")
+	}
 	seriesDir := filepath.Join(item.Directory, download.Slugify(item.SeriesTitle))
 	workDir := seriesDir
 	if item.Format != "raw" {
@@ -452,6 +534,8 @@ func (a *app) taskAction(w http.ResponseWriter, r *http.Request, action string) 
 		item.Message = "Waiting"
 		item.ImagesDone = 0
 		item.ImagesTotal = 0
+		item.ChaptersDone = 0
+		item.ChaptersTotal = len(item.Chapters)
 		item.Result = ""
 	case "remove":
 		if item.State != "completed" && item.State != "failed" && item.State != "canceled" {

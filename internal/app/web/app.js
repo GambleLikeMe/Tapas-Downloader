@@ -137,6 +137,18 @@ function renderDebug(data) {
 async function loadDebug() {
   renderDebug(await api('/api/debug'));
 }
+async function loadUpdate() {
+  try {
+    const result = await api('/api/update');
+    const banner = $('#update-banner');
+    banner.classList.toggle('hidden', !result.update);
+    if (!result.update) return;
+    $('#update-text').textContent = `Update available: ${result.update.version}`;
+    $('#update-link').href = result.update.url;
+  } catch (_) {
+    $('#update-banner').classList.add('hidden');
+  }
+}
 function renderDownloadFolder() {
   $('#download-folder').textContent = state.settings?.downloadDir || 'No folder selected';
 }
@@ -195,7 +207,7 @@ show('search');
 button.disabled = true;
 loadingResults();
   $('#recent-series-section').classList.add('hidden');
-  try { state.results = await api(`/api/search?q=${encodeURIComponent(query)}&account=${encodeURIComponent(account)}`);
+  try { state.results = await api(`/api/search?q=${encodeURIComponent(query)}&account=${encodeURIComponent(account)}&kind=${$('#search-kind').value}`);
 renderResults();
 await loadState(); }
   catch (error) { $('#search-results').innerHTML = `<div class="task-empty">${escapeHtml(error.message)}</div>`;
@@ -204,11 +216,11 @@ toast(error.message, true); }
 }
 function renderResults() {
   const results = state.results;
-  if (!results.length) { $('#search-results').innerHTML = '<div class="empty-state"><span class="empty-icon">⌕</span><strong>No comics found</strong><span>Try a different title or paste a series URL.</span></div>';
+  if (!results.length) { $('#search-results').innerHTML = `<div class="empty-state"><span class="empty-icon">⌕</span><strong>No ${$('#search-kind').value === 'books' ? 'novels' : 'comics'} found</strong><span>Try a different title, or paste a Tapas series URL.</span></div>`;
 renderRecentActivity();
 return; }
   $('#recent-series-section').classList.add('hidden');
-  $('#search-results').innerHTML = `<div class="result-meta">${results.length} ${results.length === 1 ? 'RESULT' : 'RESULTS'}</div><div class="result-list">${results.map((item) => `<div class="result-row" data-id="${item.id}">${imageMarkup(item.thumb_url)}<div class="result-copy"><button class="result-title" type="button">${escapeHtml(item.title)}</button><small>${escapeHtml(creatorNames(item.creators))}</small><p>${escapeHtml(item.description)}</p></div><button class="button subtle result-open" type="button">View chapters →</button></div>`).join('')}</div>`;
+  $('#search-results').innerHTML = `<div class="result-meta">${results.length} ${results.length === 1 ? 'RESULT' : 'RESULTS'}</div><div class="result-list">${results.map((item) => `<div class="result-row" data-id="${item.id}">${imageMarkup(item.thumb_url)}<div class="result-copy"><button class="result-title" type="button">${escapeHtml(item.title)}</button><small>${item.type === 'BOOKS' ? 'Novel · ' : ''}${escapeHtml(creatorNames(item.creators))}</small><p>${escapeHtml(item.description)}</p></div><button class="button subtle result-open" type="button">View chapters →</button></div>`).join('')}</div>`;
 }
 async function openSeries(id, refresh = false) {
   const account = $('#account-select').value;
@@ -229,8 +241,14 @@ updateSelection();
 state.seriesAccount = account;
 state.lastClicked = null;
     if (refresh) state.selected = new Set([...previousSelection].filter((selectedId) => series.episodes.some((episode) => episode.id === selectedId && episode.access !== 'locked')));
+    $('#owned-only').checked = true;
+    $('#chapter-filter').value = 'all';
+    $('#chapter-query').value = '';
+    $('#select-all-available').classList.toggle('hidden', series.type !== 'BOOKS');
     $('#series-context').textContent = `${series.episodes.length} CHAPTERS`;
-    $('#series-summary').innerHTML = `<div class="series-summary">${imageMarkup(series.thumbUrl)}<div><h1>${escapeHtml(series.title)}</h1><div class="creator">${escapeHtml(creatorNames(series.creators))}</div><p class="description">${escapeHtml(series.description)}</p></div><span class="chapter-total">${series.episodes.length} chapters</span></div>`;
+    const tags = (series.tags || []).filter((tag) => typeof tag === 'string').join(', ');
+    const metadata = series.type === 'BOOKS' ? [series.genre, series.completed ? 'Completed' : 'Ongoing', tags].filter(Boolean).join(' · ') : '';
+    $('#series-summary').innerHTML = `<div class="series-summary">${imageMarkup(series.coverUrl || series.thumbUrl)}<div><h1>${escapeHtml(series.title)}</h1><div class="creator">${escapeHtml(creatorNames(series.creators))}</div>${metadata ? `<div class="series-details">${escapeHtml(metadata)}</div>` : ''}<p class="description">${escapeHtml(series.description)}</p></div><span class="chapter-total">${series.episodes.length} chapters</span></div>`;
     renderChapters();
     if (!refresh) await loadState();
     else toast('Chapters refreshed.');
@@ -238,10 +256,20 @@ state.lastClicked = null;
 $('#series-panel').classList.add('hidden'); } toast(error.message, true); }
   finally { if (refresh) { refreshButton.disabled = false; refreshButton.textContent = 'Refresh chapters'; } }
 }
-function taskForChapter(id) {
-  return [...state.tasks].reverse().find((task) => state.series && task.seriesId === state.series.id && task.episodeId === id && !['failed', 'canceled'].includes(task.state));
+function chapterTaskInfo() {
+  const latest = new Map();
+  const completed = new Set();
+  for (const task of state.tasks) {
+    if (task.seriesId !== state.series?.id) continue;
+    const ids = task.chapters?.length ? task.chapters.map((chapter) => chapter.id) : [task.episodeId];
+    for (const id of ids) {
+      if (task.state === 'completed') completed.add(id);
+      if (!['failed', 'canceled'].includes(task.state)) latest.set(id, task);
+    }
+  }
+  return { latest, completed };
 }
-function visibleChapters() {
+function visibleChapters(taskInfo = chapterTaskInfo()) {
   if (!state.series) return [];
   const query = $('#chapter-query').value.trim().toLowerCase();
 const owned = $('#owned-only').checked;
@@ -250,7 +278,7 @@ const filter = $('#chapter-filter').value;
     if (episode.scene <= 0) return false;
     if (query && !`${episode.scene} ${episode.title}`.toLowerCase().includes(query)) return false;
     if (owned && episode.access === 'locked') return false;
-    const downloaded = episode.downloaded || state.tasks.some((task) => task.seriesId === state.series.id && task.episodeId === episode.id && task.state === 'completed');
+    const downloaded = episode.downloaded || taskInfo.completed.has(episode.id);
     if (filter === 'available' && episode.access === 'locked') return false;
     if (filter === 'locked' && episode.access !== 'locked') return false;
     if (filter === 'downloaded' && !downloaded) return false;
@@ -259,8 +287,8 @@ const filter = $('#chapter-filter').value;
   rows.sort((a, b) => state.sortDesc ? b.scene - a.scene : a.scene - b.scene);
   return rows;
 }
-function chapterStatus(episode) {
-  const task = taskForChapter(episode.id);
+function chapterStatus(episode, taskInfo) {
+  const task = taskInfo.latest.get(episode.id);
   if (task && ['queued', 'preparing', 'downloading', 'converting', 'canceling'].includes(task.state)) return { label: task.state === 'queued' ? 'Queued' : task.state === 'converting' ? 'Converting' : 'Downloading', className: 'queue' };
   if (episode.downloaded || task?.state === 'completed') return { label: 'Downloaded', className: 'downloaded' };
   if (episode.access === 'unlocked') return { label: 'Unlocked', className: '' };
@@ -268,9 +296,10 @@ function chapterStatus(episode) {
   return { label: 'Locked', className: 'locked' };
 }
 function renderChapters() {
-  const visible = visibleChapters();
+  const taskInfo = chapterTaskInfo();
+  const visible = visibleChapters(taskInfo);
   $('#visible-count').textContent = `${visible.length} ${visible.length === 1 ? 'chapter' : 'chapters'} shown`;
-  $('#chapter-list').innerHTML = visible.length ? visible.map((episode) => { const status = chapterStatus(episode);
+  $('#chapter-list').innerHTML = visible.length ? visible.map((episode) => { const status = chapterStatus(episode, taskInfo);
 return `<label class="chapter-row ${state.selected.has(episode.id) ? 'selected' : ''}"><input type="checkbox" data-id="${episode.id}" ${state.selected.has(episode.id) ? 'checked' : ''} ${episode.access === 'locked' ? 'disabled' : ''} aria-label="Select chapter ${episode.scene}: ${escapeHtml(episode.title)}"><span class="chapter-number">${episode.scene}</span><span class="chapter-title">${escapeHtml(episode.title || `Chapter ${episode.scene}`)}</span><span class="chapter-tags"><span class="state-label ${status.className}">${status.label}</span></span></label>`; }).join('') : '<div class="task-empty">No chapters match these filters.</div>';
   updateSelection();
 }
@@ -282,6 +311,13 @@ function updateSelection() {
 }
 function selectVisible() { visibleChapters().filter((episode) => episode.access !== 'locked').forEach((episode) => state.selected.add(episode.id));
 renderChapters(); }
+function selectAllAvailable() { state.series?.episodes.filter((episode) => episode.scene > 0 && episode.access !== 'locked').forEach((episode) => state.selected.add(episode.id));
+renderChapters(); }
+function updateNovelFileMode() {
+  const novel = state.series?.type === 'BOOKS';
+  const format = $('#download-config').elements.format.value;
+  $('#novel-file-mode').classList.toggle('hidden', !novel || format === 'raw');
+}
 function openDialog() {
   if (!state.selected.size || !state.series) return;
   const selected = state.series.episodes.filter((episode) => state.selected.has(episode.id));
@@ -290,6 +326,14 @@ function openDialog() {
   const form = $('#download-config');
   form.elements.directory.value = state.settings?.downloadDir || '';
   form.elements.format.value = state.settings?.defaultFormat || 'pdf';
+  const rawLabel = $('#raw-format-label');
+  const rawHelp = $('#raw-format-help');
+  rawLabel.textContent = state.series.type === 'BOOKS' ? 'HTML' : 'Images';
+  rawHelp.textContent = state.series.type === 'BOOKS' ? 'Offline chapter folders' : 'Original image folders';
+  $('#pdf-format-help').textContent = state.series.type === 'BOOKS' ? 'Selected chapters' : 'One file per chapter';
+  $('#epub-format-help').textContent = state.series.type === 'BOOKS' ? 'Selected chapters' : 'One file per chapter';
+  form.elements.mode.value = 'combined';
+  updateNovelFileMode();
   $('#download-dialog').classList.remove('hidden');
   form.elements.directory.focus();
 }
@@ -300,15 +344,17 @@ async function startDownload(event) {
   const form = event.currentTarget;
   if (selected.some((episode) => episode.access === 'locked')) { toast('Locked chapters are unavailable for download.', true);
 return; }
+  const combine = state.series.type === 'BOOKS' && form.elements.format.value !== 'raw' && form.elements.mode.value === 'combined';
+  if (!combine && selected.length > 500) { toast('Choose one file for more than 500 chapters.', true); return; }
   const button = $('#start-download');
 button.disabled = true;
 button.textContent = 'Adding to queue…';
   try {
-    const result = await post('/api/tasks', { account: state.seriesAccount, seriesId: state.series.id, episodeIds: selected.map((episode) => episode.id), format: form.elements.format.value, directory: form.elements.directory.value });
+    const result = await post('/api/tasks', { account: state.seriesAccount, seriesId: state.series.id, episodeIds: selected.map((episode) => episode.id), format: form.elements.format.value, directory: form.elements.directory.value, combine });
     closeDialog();
 state.selected.clear();
 renderChapters();
-toast(`${result.queued} ${result.queued === 1 ? 'chapter' : 'chapters'} added to the queue.`);
+toast(combine ? `One file with ${selected.length} chapters added to the queue.` : `${result.queued} ${result.queued === 1 ? 'chapter' : 'chapters'} added to the queue.`);
     await loadTasks();
 show('downloads');
   } catch (error) { toast(error.message, true); }
@@ -322,10 +368,12 @@ function taskActions(task) {
   return '';
 }
 function taskMarkup(task) {
-  const progress = task.imagesTotal ? Math.round(task.imagesDone / task.imagesTotal * 100) : 0;
+  const total = task.chaptersTotal || task.imagesTotal || 0;
+  const done = task.chaptersTotal ? task.chaptersDone : task.imagesDone;
+  const progress = total ? Math.round(done / total * 100) : 0;
   const busy = ['downloading', 'preparing', 'converting', 'canceling'].includes(task.state);
-  const details = task.state === 'failed' ? task.message : task.state === 'downloading' && task.imagesTotal ? `${task.imagesDone} / ${task.imagesTotal} images saved` : task.message;
-  return `<div class="task-row"><div><div class="task-row-title">${escapeHtml(task.seriesTitle)} <span>·</span> ${escapeHtml(task.episodeTitle || `Chapter ${task.scene}`)}</div><div class="task-subline ${task.state === 'failed' ? 'error' : ''}"><span class="task-state ${task.state}">${escapeHtml(task.state.toUpperCase())}</span> · ${escapeHtml(details)} · ${task.format === 'raw' ? 'IMAGES' : task.format.toUpperCase()}</div>${busy && task.imagesTotal ? `<div class="task-progress" role="progressbar" aria-valuenow="${task.imagesDone}" aria-valuemin="0" aria-valuemax="${task.imagesTotal}"><div style="width:${progress}%"></div></div>` : ''}</div><div class="task-actions">${taskActions(task)}</div></div>`;
+  const details = task.state === 'failed' ? task.message : task.state === 'downloading' && total ? `${done} / ${total} ${task.chaptersTotal ? 'chapters saved' : task.seriesType === 'BOOKS' ? 'parts fetched' : 'images saved'}` : task.message;
+  return `<div class="task-row"><div><div class="task-row-title">${escapeHtml(task.seriesTitle)} <span>·</span> ${escapeHtml(task.episodeTitle || `Chapter ${task.scene}`)}</div><div class="task-subline ${task.state === 'failed' ? 'error' : ''}"><span class="task-state ${task.state}">${escapeHtml(task.state.toUpperCase())}</span> · ${escapeHtml(details)} · ${task.format === 'raw' ? (task.seriesType === 'BOOKS' ? 'HTML' : 'IMAGES') : task.format.toUpperCase()}</div>${busy && total ? `<div class="task-progress" role="progressbar" aria-valuenow="${done}" aria-valuemin="0" aria-valuemax="${total}"><div style="width:${progress}%"></div></div>` : ''}</div><div class="task-actions">${taskActions(task)}</div></div>`;
 }
 function renderDownloads() {
   const active = state.tasks.filter((task) => !['completed', 'failed', 'canceled'].includes(task.state));
@@ -374,7 +422,7 @@ function renderHistory() {
   $('#disk-history').innerHTML = state.library.length ? state.library.map((series) => {
     const expanded = state.expandedSeries.has(series.path);
     const count = series.episodes.length + series.files.length;
-    const episodes = series.episodes.map((episode) => `<div class="history-episode"><span class="title">${escapeHtml(episode.name)} <small>· ${episode.images} images</small></span>${diskActions(episode)}</div>`).join('');
+    const episodes = series.episodes.map((episode) => `<div class="history-episode"><span class="title">${escapeHtml(episode.name)} <small>· ${episode.type === 'BOOKS' ? 'HTML' : `${episode.images} images`}</small></span>${diskActions(episode)}</div>`).join('');
     const files = series.files.map((file) => `<div class="history-episode"><span class="title">${escapeHtml(file.name)} <small>· ${escapeHtml(file.format.toUpperCase())}</small></span><a class="button link" href="/api/file?path=${encodeURIComponent(file.path)}">Save ${escapeHtml(file.format.toUpperCase())}</a></div>`).join('');
     return `<div class="history-series"><div class="history-series-header"><button class="history-toggle" type="button" data-path="${escapeHtml(series.path)}" aria-expanded="${expanded}"><span class="history-chevron" aria-hidden="true">${expanded ? '▾' : '▸'}</span><strong>${escapeHtml(series.title)}</strong><small>${count} downloads</small></button>${series.episodes.length ? diskActions(series) : ''}</div><div class="history-series-body ${expanded ? '' : 'hidden'}">${episodes}${files}</div></div>`;
   }).join('') : '<div class="task-empty">No downloaded files found in the original downloads folder.</div>';
@@ -437,6 +485,7 @@ $('#sort-chapters').addEventListener('click', () => { state.sortDesc = !state.so
 $('#sort-chapters').textContent = state.sortDesc ? 'Newest first ↓' : 'Oldest first ↑';
 renderChapters(); });
 $('#select-visible').addEventListener('click', selectVisible);
+$('#select-all-available').addEventListener('click', selectAllAvailable);
 $('#clear-selection').addEventListener('click', () => { state.selected.clear();
 renderChapters(); });
 $('#chapter-list').addEventListener('click', (event) => {
@@ -458,6 +507,7 @@ $('#close-dialog').addEventListener('click', closeDialog);
 $('#cancel-dialog').addEventListener('click', closeDialog);
 $('#download-dialog').addEventListener('click', (event) => { if (event.target.id === 'download-dialog') closeDialog(); });
 $('#download-config').addEventListener('submit', startDownload);
+$('#download-config').addEventListener('change', updateNovelFileMode);
 for (const selector of ['#active-tasks', '#recent-tasks', '#history-tasks']) $(selector).addEventListener('click', (event) => { const button = event.target.closest('.task-action');
 if (button) taskAction(button); });
 $('#disk-history').addEventListener('click', (event) => {
@@ -556,6 +606,10 @@ async function connectSession() {
   if (!response.ok) throw new Error('This app link has expired. Open the current link printed by the server.');
   history.replaceState(null, '', location.pathname + location.search);
 }
-connectSession().then(() => Promise.all([loadState(), loadSettings(), loadTasks()])).then(() => { if (!state.accounts.length) show('settings'); }).catch((error) => toast(error.message, true));
+connectSession().then(() => Promise.all([loadState(), loadSettings(), loadTasks()])).then(() => {
+  if (!state.accounts.length) show('settings');
+  loadUpdate();
+}).catch((error) => toast(error.message, true));
 setInterval(() => loadTasks().catch((error) => toast(error.message, true)), 1500);
+setInterval(loadUpdate, 6 * 60 * 60 * 1000);
 setInterval(() => { if (state.view === 'settings' && $('#debug-enabled').checked) loadDebug().catch((error) => { $('#debug-output').textContent = error.message; }); }, 3000);

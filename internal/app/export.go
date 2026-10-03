@@ -36,6 +36,7 @@ type libraryEpisode struct {
 	Name   string `json:"name"`
 	Path   string `json:"path"`
 	Images int    `json:"images"`
+	Type   string `json:"type,omitempty"`
 	Scene  int64  `json:"-"`
 	PDF    bool   `json:"pdf"`
 	EPUB   bool   `json:"epub"`
@@ -51,6 +52,7 @@ type librarySeries struct {
 	Path     string           `json:"path"`
 	Episodes []libraryEpisode `json:"episodes"`
 	Files    []libraryFile    `json:"files"`
+	Type     string           `json:"type,omitempty"`
 	PDF      bool             `json:"pdf"`
 	EPUB     bool             `json:"epub"`
 }
@@ -142,6 +144,19 @@ func scanLibrary(root string) ([]librarySeries, error) {
 				continue
 			}
 			path := filepath.Join(dir, child.Name())
+			if _, err := os.Stat(filepath.Join(path, ".novel")); err == nil {
+				if _, err := os.Stat(filepath.Join(path, "chapter.html")); err != nil {
+					continue
+				}
+				rel := filepath.Join(entry.Name(), child.Name())
+				_, pdfErr := os.Stat(filepath.Join(path, child.Name()+".pdf"))
+				_, epubErr := os.Stat(filepath.Join(path, child.Name()+".epub"))
+				sceneData, _ := os.ReadFile(filepath.Join(path, ".scene"))
+				scene, _ := strconv.ParseInt(strings.TrimSpace(string(sceneData)), 10, 64)
+				series.Episodes = append(series.Episodes, libraryEpisode{Name: child.Name(), Path: rel, Scene: scene, Type: "BOOKS", PDF: pdfErr == nil, EPUB: epubErr == nil})
+				series.Type = "BOOKS"
+				continue
+			}
 			images, err := imagePaths(path)
 			if err != nil {
 				return nil, err
@@ -238,6 +253,63 @@ func (a *app) export(w http.ResponseWriter, r *http.Request) {
 	}
 	if target == "" {
 		fail(w, 404, errors.New("download not found"))
+		return
+	}
+	if selectedSeries.Type == "BOOKS" {
+		book := bookMetadata{}
+		if data, err := os.ReadFile(filepath.Join(selectedSeries.Path, ".series.json")); err == nil {
+			_ = json.Unmarshal(data, &book)
+		}
+		book.SeriesTitle = selectedSeries.Title
+		book.Title = selectedSeries.Title
+		if !a.matchesLibraryPath(input.Path, selectedSeries.Path) {
+			book.Title += " — " + name
+		}
+		if book.Source == "" {
+			book.Source = "https://tapas.io"
+		}
+		if a.matchesLibraryPath(input.Path, selectedSeries.Path) {
+			chapters := make([]novelExportChapter, 0, len(selectedSeries.Episodes))
+			for _, episode := range selectedSeries.Episodes {
+				if episode.Type != "BOOKS" {
+					continue
+				}
+				if _, err := readNovelDocument(episode.Path); err != nil {
+					fail(w, 500, err)
+					return
+				}
+				title := episode.Name
+				if index := strings.LastIndex(title, " ["); index >= 0 {
+					title = title[:index]
+				}
+				chapters = append(chapters, novelExportChapter{Title: title, Dir: episode.Path})
+			}
+			if len(chapters) == 0 {
+				fail(w, 400, errors.New("this novel has no saved Raw chapters"))
+				return
+			}
+			final, err := exportNovelChapters(r.Context(), target, selectedSeries.Name, input.Format, chapters, book)
+			if err != nil {
+				fail(w, 500, err)
+				return
+			}
+			send(w, map[string]string{"path": final})
+			return
+		}
+		if data, err := os.ReadFile(filepath.Join(target, ".chapter.json")); err == nil {
+			_ = json.Unmarshal(data, &book)
+		}
+		doc, err := readNovelDocument(target)
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		final, err := exportNovelFile(r.Context(), target, name, input.Format, target, doc, exportMetadata{Book: book, Template: "{chapter_name}"})
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		send(w, map[string]string{"path": final})
 		return
 	}
 	book := bookMetadata{}
