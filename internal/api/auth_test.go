@@ -17,7 +17,7 @@ func TestBuildHeaderPreservesOriginalValues(t *testing.T) {
 		"X-Device-Type": "ANDROID",
 		"X-Device-Uuid": hex.EncodeToString([]byte("kahuwolp")),
 		"X-Lang-Code":   "en",
-		"User-Agent":    "okhttp 31812; OS Version 16; phone; App Version ZERO",
+		"User-Agent":    "okhttp 31812; OS Version 16; phone; App Version 23",
 		"X-User-Id":     "user",
 		"X-Auth-Token":  "token",
 	}
