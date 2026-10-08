@@ -1,6 +1,6 @@
 # Tapas Downloader
 
-This downloader can download Comics from *Tapas*.
+This downloader can download Comics and Novels from *Tapas*.
 
 ## Legal Warning
 
@@ -22,13 +22,13 @@ Download the build for your computer from GitHub Releases and extract it.
 - Linux: Extract the archive and run ./TapasDownloader in a terminal.
 - macOS: Open 'Tapas Downloader.app'. The app is unsigned, so macOS may ask you to approve it in System Settings.
 
-The app will open in your browser. On WSL, the browser is left closed; open the local link shown in the terminal. Keep that link private.
+The app will open in your browser.
 
-Download a comic.
+Download a comic or a novel.
 
 1. Open Settings and connect your Tapas account.
 2. Search by comic title, Tapas series link or series ID.
-3. Open a comic, select the chapters you want and click the download button.
+3. Open a comic/novel, select the chapters you want and click the download button.
 4. Select PDF, EPUB or Images, then start the download. Follow its progress in Downloads.
 
 ## Screenshots
